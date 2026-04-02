@@ -141,21 +141,11 @@ class StepRecorder:
         true_target_cells: list[int],
         network,       # Network instance (for comm stats)
         config,        # CommConfig
-        silent_failure_alignment_threshold: float | None = None,
         silent_failure_divergence_threshold: float = 0.2,
     ) -> EpisodeMetrics:
         """
         Build the final EpisodeMetrics from accumulated data.
         Call once after the episode loop ends.
-        
-        Parameters
-        ----------
-        silent_failure_alignment_threshold : 
-            If None, auto-computed as 5x the uniform prior (5/N²).
-            This makes it grid-size adaptive: 
-            - 10×10 grid → 5/100 = 0.05
-            - 15×15 grid → 5/225 = 0.022
-            - 20×20 grid → 5/400 = 0.0125
         """
         jsd_arr = np.array(self._jsd, dtype=np.float64)
         align_arr = np.array(self._alignment, dtype=np.float64)
@@ -167,17 +157,10 @@ class StepRecorder:
         final_jsd = float(jsd_arr[-1]) if len(jsd_arr) else np.nan
         final_alignment = float(align_arr[-1]) if len(align_arr) else np.nan
 
-        # Auto-compute alignment threshold if not provided
-        if silent_failure_alignment_threshold is None:
-            n_cells = agents[0].belief.n_cells if agents else 225
-            # 5x uniform prior: agents must learn SOMETHING to avoid silent failure
-            silent_failure_alignment_threshold = 5.0 / n_cells
-
-        # Silent failure: agents agree with each other but are all wrong
+        # Silent failure: agents converged on same location but it's wrong
         is_silent_failure = silent_failure(
             belief_maps=[a.belief for a in agents],
             true_target_cells=true_target_cells,
-            alignment_threshold=silent_failure_alignment_threshold,
             divergence_threshold=silent_failure_divergence_threshold,
         )
 
@@ -226,8 +209,7 @@ class ConditionSummary:
 
     # Epistemic health
     silent_failure_rate: float = np.nan
-    silent_failure_rate_given_failure: float = np.nan  # NEW: SF rate among failed episodes only
-    coordinated_failure_rate: float = np.nan            # NEW: low JSD among failures
+    silent_failure_rate_given_failure: float = np.nan
     mean_final_jsd: float = np.nan
     std_final_jsd: float = np.nan
     mean_final_alignment: float = np.nan
@@ -257,7 +239,6 @@ class ConditionSummary:
             "std_time_to_success": self.std_time_to_success,
             "silent_failure_rate": self.silent_failure_rate,
             "silent_failure_rate_given_failure": self.silent_failure_rate_given_failure,
-            "coordinated_failure_rate": self.coordinated_failure_rate,
             "mean_final_jsd": self.mean_final_jsd,
             "std_final_jsd": self.std_final_jsd,
             "mean_final_alignment": self.mean_final_alignment,
@@ -269,59 +250,82 @@ class ConditionSummary:
         }
 
 
+# ---------------------------------------------------------------------------
+# Condition-level aggregation  (module-level function, NOT inside the class)
+# ---------------------------------------------------------------------------
+
 def aggregate_episodes(
     condition_name: str,
     episode_metrics: list[EpisodeMetrics],
     episode_length: int,
+    n_cells: int,
 ) -> ConditionSummary:
     """
     Aggregate a list of EpisodeMetrics into a ConditionSummary.
 
     Time series are padded / truncated to episode_length so the matrix
     shape is consistent across seeds regardless of early termination.
+
+    Silent failure is re-evaluated here to ensure consistency:
+    agents converged on same location (low JSD) but it's wrong (low alignment).
+    The alignment threshold scales with grid size: 5/n_cells.
     """
     n = len(episode_metrics)
     if n == 0:
         return ConditionSummary(condition_name=condition_name)
 
-    # --- scalar aggregations ---
+    # Silent failure threshold: 5x the uniform prior, scales with grid size
+    _SILENT_FAILURE_ALIGNMENT_MULTIPLIER = 5.0
+    alignment_threshold = _SILENT_FAILURE_ALIGNMENT_MULTIPLIER / n_cells
+
+    # --- re-evaluate silent failure: low JSD (agree) + low alignment (wrong) ---
+    for m in episode_metrics:
+        if not m.task_success:
+            m.silent_failure = (
+                m.final_mean_jsd < 0.2 and
+                m.final_mean_alignment < alignment_threshold
+            )
+        else:
+            m.silent_failure = False
+
+    # --- scalar aggregations (must come AFTER re-evaluation above) ---
     successes = np.array([m.task_success for m in episode_metrics], dtype=float)
     tts = np.array([
         m.time_to_success if m.task_success else np.nan
         for m in episode_metrics
     ])
-    sf_flags = np.array([m.silent_failure for m in episode_metrics], dtype=float)
+    sf_flags = np.array(
+        [1.0 if (not m.task_success and m.final_mean_jsd < 0.1) else 0.0
+         for m in episode_metrics]
+    )
     final_jsd = np.array([m.final_mean_jsd for m in episode_metrics])
     final_align = np.array([m.final_mean_alignment for m in episode_metrics])
     msgs = np.array([m.messages_sent for m in episode_metrics], dtype=float)
     bytes_ = np.array([m.bytes_transmitted for m in episode_metrics], dtype=float)
     dropped = np.array([m.messages_dropped for m in episode_metrics], dtype=float)
-    apb = np.array([
-        m.alignment_per_byte for m in episode_metrics
-        if not np.isnan(m.alignment_per_byte)
-    ])
+    # ratio of means (not mean of ratios)
+    valid_episodes = [
+        m for m in episode_metrics
+        if m.bytes_transmitted > 0 and not np.isnan(m.final_mean_alignment)
+    ]
+    mean_alignment_per_byte = (
+        float(np.mean([m.final_mean_alignment for m in valid_episodes])) /
+        float(np.mean([m.bytes_transmitted for m in valid_episodes]))
+    ) if valid_episodes else np.nan
 
     # Drop rate per episode (avoid divide-by-zero)
     with np.errstate(invalid="ignore", divide="ignore"):
         drop_rates = np.where(msgs > 0, dropped / msgs, np.nan)
 
-    # --- NEW: Failure-mode conditional metrics ---
-    # Among episodes that FAILED, how many were silent failures?
+    # --- silent failure: failed episodes where agents converged (low JSD) ---
     failed_episodes = [m for m in episode_metrics if not m.task_success]
     if failed_episodes:
-        silent_failures_among_failed = sum(m.silent_failure for m in failed_episodes)
-        sf_rate_given_failure = silent_failures_among_failed / len(failed_episodes)
-        
-        # Coordinated failure: among failures, what fraction had low JSD (agents agreed)?
-        # Low JSD among failures = agents coordinated on wrong hypothesis
-        coordinated_failures = sum(
-            1 for m in failed_episodes if m.final_mean_jsd < 0.2
+        silent_failures = sum(
+            1 for m in failed_episodes if m.final_mean_jsd < 0.1
         )
-        coordinated_failure_rate = coordinated_failures / len(failed_episodes)
+        sf_rate_given_failure = silent_failures / len(failed_episodes)
     else:
-        # All episodes succeeded → no failure modes to analyze
         sf_rate_given_failure = np.nan
-        coordinated_failure_rate = np.nan
 
     # --- time series (pad shorter episodes with final value) ---
     def _pad_series(arr: NDArray, T: int) -> NDArray:
@@ -348,7 +352,6 @@ def aggregate_episodes(
         std_time_to_success=float(np.nanstd(tts)) if np.any(~np.isnan(tts)) else np.nan,
         silent_failure_rate=float(np.mean(sf_flags)),
         silent_failure_rate_given_failure=sf_rate_given_failure,
-        coordinated_failure_rate=coordinated_failure_rate,
         mean_final_jsd=float(np.nanmean(final_jsd)),
         std_final_jsd=float(np.nanstd(final_jsd)),
         mean_final_alignment=float(np.nanmean(final_align)),
@@ -356,7 +359,7 @@ def aggregate_episodes(
         mean_messages_sent=float(np.mean(msgs)),
         mean_bytes_transmitted=float(np.mean(bytes_)),
         mean_drop_rate=float(np.nanmean(drop_rates)) if np.any(~np.isnan(drop_rates)) else np.nan,
-        mean_alignment_per_byte=float(np.mean(apb)) if len(apb) > 0 else np.nan,
+        mean_alignment_per_byte=mean_alignment_per_byte,
         jsd_matrix=jsd_mat,
         alignment_matrix=align_mat,
     )
