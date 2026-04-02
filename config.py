@@ -10,17 +10,17 @@ from dataclasses import dataclass, field
 
 @dataclass
 class WorldConfig:
-    grid_size: int = 20          # N: world is N x N cells
+    grid_size: int = 50         # N: world is N x N cells
     num_targets: int = 1         # 1 or 2 stationary targets per episode
-    num_obstacles: int = 5     # number of static obstacle cells
+    num_obstacles: int = 0     # number of static obstacle cells
     obstacle_seed: int | None = None  # if set, obstacles are fixed across episodes
 
 
 @dataclass
 class ObservationConfig:
-    fov_radius: int = 3          # agent sees cells within Chebyshev distance r
-    false_negative_rate: float = 0.00001  # P(miss | target present in FOV)
-    false_positive_rate: float = 0.00001  # P(detect | target absent in FOV)
+    fov_radius: int = 2          # agent sees cells within Chebyshev distance r
+    false_negative_rate: float = 0.0  # P(miss | target present in FOV)
+    false_positive_rate: float = 0.0 # P(detect | target absent in FOV)
 
 
 @dataclass
@@ -40,12 +40,12 @@ class CommConfig:
     latency_steps: int = 0          # number of time steps a message is delayed
 
     # C2 / C3 parameters
-    top_k: int = 4                  # number of top-belief cells transmitted in C2/C3
+    top_k: int = 5                  # number of top-belief cells transmitted in C2/C3
 
     # C3: agent transmits only if |H(now) - H(at_last_send)| >= threshold (nats).
     # Gates on *change* in entropy since last transmission, not on absolute level.
     # Sends when belief has meaningfully shifted (concentrated or diffused).
-    entropy_delta_threshold: float = 0.1   # nats; tune per experiment
+    entropy_delta_threshold: float = 0.15   # nats; tune per experiment
 
     # Fusion: weight is derived from sender confidence (inverse entropy).
     # This caps the maximum weight any single message can contribute.
@@ -54,8 +54,8 @@ class CommConfig:
 
 @dataclass
 class ExperimentConfig:
-    episode_length: int = 200    # T: max steps per episode
-    num_seeds: int = 50          # random seeds per experimental condition
+    episode_length: int = 150    # T: max steps per episode
+    num_seeds: int = 10          # random seeds per experimental condition
     min_agents_for_success: int = 2  # number of agents that must reach target
     # 1 = any single agent (individual search)
     # 2+ = coordinated arrival (true collaboration required)

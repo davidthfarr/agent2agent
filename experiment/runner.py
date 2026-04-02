@@ -215,6 +215,7 @@ class ConditionRunner:
             condition_name=condition.name,
             episode_metrics=episode_results,
             episode_length=T,
+            n_cells=cfg.world.grid_size ** 2,
         )
 
         if self.verbose:
@@ -293,7 +294,7 @@ class ExperimentRunner:
 def save_results(results: dict[str, ConditionSummary], path: str) -> None:
     """
     Save full ConditionSummary objects to a pickle file.
-    
+
     Parameters
     ----------
     path : file path WITHOUT extension (e.g. 'results/experiment')
@@ -301,35 +302,34 @@ def save_results(results: dict[str, ConditionSummary], path: str) -> None:
     """
     import pickle
     import os
-    
-    # Ensure directory exists
+
     os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-    
+
     pkl_path = path if path.endswith(".pkl") else f"{path}.pkl"
     with open(pkl_path, "wb") as f:
         pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
-    
+
     print(f"Results saved to {pkl_path}")
 
 
 def load_results(path: str) -> dict[str, ConditionSummary]:
     """
     Load full ConditionSummary objects from a pickle file.
-    
+
     Parameters
     ----------
     path : file path (with or without .pkl extension)
-    
+
     Returns
     -------
     dict mapping condition_name → ConditionSummary
     """
     import pickle
-    
+
     pkl_path = path if path.endswith(".pkl") else f"{path}.pkl"
     with open(pkl_path, "rb") as f:
         results = pickle.load(f)
-    
+
     print(f"Loaded {len(results)} conditions from {pkl_path}")
     return results
 
@@ -347,7 +347,6 @@ def _save_results_npz(results: dict[str, ConditionSummary], path: str) -> None:
         for metric, value in d.items():
             key = f"{safe_name}__{metric}"
             arrays[key] = np.array(value)
-        # Time series
         arrays[f"{safe_name}__jsd_matrix"] = summary.jsd_matrix
         arrays[f"{safe_name}__alignment_matrix"] = summary.alignment_matrix
 
@@ -371,35 +370,20 @@ def _print_condition_summary(s: ConditionSummary) -> None:
         f"apb={s.mean_alignment_per_byte:.6f}"
     )
 
-
-def print_results_table(results: dict[str, ConditionSummary]) -> None:
-    """Print a formatted comparison table of all conditions."""
-    header = (
-        f"{'Condition':<25} {'Success':>8} {'SF|All':>8} {'SF|Fail':>8} {'CoordFail':>10} "
-        f"{'JSD':>8} {'Align':>8} {'Msgs':>8} {'A/B':>12}"
-    )
-    print("\n" + "=" * len(header))
-    print(header)
-    print("-" * len(header))
-
+def print_results_table(results: dict, header: str = "") -> None:
+    """Print a formatted table of condition results."""
     for name, s in results.items():
         apb_str = f"{s.mean_alignment_per_byte:.2e}" if not np.isnan(s.mean_alignment_per_byte) else "    N/A"
-        sf_fail_str = f"{s.silent_failure_rate_given_failure:.3f}" if not np.isnan(s.silent_failure_rate_given_failure) else "  N/A"
-        coord_fail_str = f"{s.coordinated_failure_rate:.3f}" if not np.isnan(s.coordinated_failure_rate) else "    N/A"
-        
+        sf_str = f"{s.silent_failure_rate_given_failure:.3f}" if not np.isnan(s.silent_failure_rate_given_failure) else "    N/A"
         print(
-            f"{name:<25} {s.task_success_rate:>8.3f} {s.silent_failure_rate:>8.3f} "
-            f"{sf_fail_str:>8} {coord_fail_str:>10} "
+            f"{name:<25} {s.task_success_rate:>8.3f} {sf_str:>10} "
             f"{s.mean_final_jsd:>8.4f} {s.mean_final_alignment:>8.4f} "
             f"{s.mean_messages_sent:>8.1f} {apb_str:>12}"
         )
-
     print("=" * len(header))
     print("\nColumn Legend:")
     print("  Success    = Task success rate (any agent reached target)")
-    print("  SF|All     = Silent failure rate across all episodes")
-    print("  SF|Fail    = Silent failure rate among FAILED episodes only")
-    print("  CoordFail  = Coordinated failure rate (low JSD among failures)")
+    print("  SilentFail = Silent failure rate among failed episodes (JSD < 0.1)")
     print("  JSD        = Mean final pairwise JSD")
     print("  Align      = Mean final alignment to truth")
     print("  Msgs       = Mean messages sent per episode")
