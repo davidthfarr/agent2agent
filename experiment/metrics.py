@@ -153,16 +153,13 @@ class StepRecorder:
         task_success = self._first_success_step is not None
         time_to_success = float(self._first_success_step) if task_success else np.nan
 
-        # Final-step epistemic state
+        # Replace with this in StepRecorder.finalise
         final_jsd = float(jsd_arr[-1]) if len(jsd_arr) else np.nan
-        final_alignment = float(align_arr[-1]) if len(align_arr) else np.nan
-
-        # Silent failure: agents converged on same location but it's wrong
-        is_silent_failure = silent_failure(
-            belief_maps=[a.belief for a in agents],
-            true_target_cells=true_target_cells,
-            divergence_threshold=silent_failure_divergence_threshold,
+        is_silent_failure = (
+            not task_success and
+            final_jsd < 0.1
         )
+        final_alignment = float(align_arr[-1]) if len(align_arr) else np.nan
 
         # Communication cost (from network stats)
         msgs_sent = network.messages_sent_this_episode
