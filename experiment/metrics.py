@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
-from core.belief import mean_pairwise_jsd, alignment_to_truth, silent_failure
+from core.belief import mean_pairwise_jsd, alignment_to_truth
 from core.agent import Agent
 
 
