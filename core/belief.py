@@ -236,35 +236,6 @@ def alignment_to_truth(
     return float(p[true_target_cells].max())
 
 
-def silent_failure(
-    belief_maps: list[BeliefMap],
-    true_target_cells: list[int],
-    divergence_threshold: float = 0.2,
-    alignment_multiplier: float = 5.0,
-) -> bool:
-    """
-    Detect a "silent failure": agents converged on the same location
-    but that location is wrong.
-
-    A silent failure occurs when:
-      - Mean pairwise JSD < divergence_threshold  (agents agree with each other)
-      - Mean alignment to truth < alignment_multiplier / n_cells
-        (agents are wrong — belief mass on true target is near-uniform or below)
-
-    The alignment threshold scales with grid size via alignment_multiplier / n_cells,
-    so it works correctly across any grid size without tuning.
-      - 10×10 grid → 5/100  = 0.050
-      - 15×15 grid → 5/225  = 0.022
-      - 50×50 grid → 5/2500 = 0.002
-    """
-    n_cells = belief_maps[0].n_cells
-    alignment_threshold = alignment_multiplier / n_cells
-
-    mpjsd = mean_pairwise_jsd(belief_maps)
-    mean_alignment = float(np.mean(
-        [alignment_to_truth(bm, true_target_cells, bm.n_cells) for bm in belief_maps]
-    ))
-    return bool(mpjsd < divergence_threshold and mean_alignment < alignment_threshold)
 
 # ---------------------------------------------------------------------------
 # Belief fusion
