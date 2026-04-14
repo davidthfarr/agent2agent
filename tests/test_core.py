@@ -243,28 +243,69 @@ class TestDivergenceMetrics:
         assert alignment_to_truth(bm, [3], 10) == pytest.approx(1.0)
         assert alignment_to_truth(bm, [5], 10) == pytest.approx(0.0)
 
-    def test_silent_failure_detection(self):
-        # Four agents all agree on cell 5 (wrong target)
-        bms = []
-        for _ in range(4):
-            bm = BeliefMap(n_cells=20)
-            p = np.zeros(20)
-            p[5] = 1.0
-            bm.set_probs(p)
-            bms.append(bm)
-        # True target is at cell 15
-        assert silent_failure(bms, [15], alignment_threshold=0.1, divergence_threshold=0.3)
-
-    def test_not_silent_failure_when_aligned(self):
-        # Four agents all agree on the *correct* cell
-        bms = []
-        for _ in range(4):
-            bm = BeliefMap(n_cells=20)
-            p = np.zeros(20)
-            p[10] = 1.0
-            bm.set_probs(p)
-            bms.append(bm)
-        assert not silent_failure(bms, [10], alignment_threshold=0.1, divergence_threshold=0.3)
+    def test_silent_failure_low_jsd_wrong_target(self):
+        """Low JSD + task failure = silent failure."""
+        from experiment.metrics import EpisodeMetrics, aggregate_episodes
+        
+        # Simulate failed episodes with low JSD (converged on wrong cell)
+        episodes = []
+        for _ in range(10):
+            m = EpisodeMetrics(
+                task_success=False,
+                final_mean_jsd=0.005,        # well below 0.1 threshold
+                final_mean_alignment=0.001,  # near uniform prior
+            )
+            episodes.append(m)
+        
+        summary = aggregate_episodes(
+            condition_name="test",
+            episode_metrics=episodes,
+            episode_length=200,
+            n_cells=2500,
+        )
+        assert summary.silent_failure_rate == pytest.approx(1.0)
+    
+    def test_no_silent_failure_when_successful(self):
+        """Successful episodes are never classified as silent failure."""
+        from experiment.metrics import EpisodeMetrics, aggregate_episodes
+        
+        episodes = []
+        for _ in range(10):
+            m = EpisodeMetrics(
+                task_success=True,
+                final_mean_jsd=0.005,
+                final_mean_alignment=0.8,
+            )
+            episodes.append(m)
+        
+        summary = aggregate_episodes(
+            condition_name="test",
+            episode_metrics=episodes,
+            episode_length=200,
+            n_cells=2500,
+        )
+        assert summary.silent_failure_rate == pytest.approx(0.0)
+    
+    def test_no_silent_failure_high_jsd(self):
+        """Failed episodes with high JSD are not silent failures."""
+        from experiment.metrics import EpisodeMetrics, aggregate_episodes
+        
+        episodes = []
+        for _ in range(10):
+            m = EpisodeMetrics(
+                task_success=False,
+                final_mean_jsd=0.25,         # above 0.1 threshold
+                final_mean_alignment=0.001,
+            )
+            episodes.append(m)
+        
+        summary = aggregate_episodes(
+            condition_name="test",
+            episode_metrics=episodes,
+            episode_length=200,
+            n_cells=2500,
+        )
+        assert summary.silent_failure_rate == pytest.approx(0.0)
 
 
 # ===========================================================================
