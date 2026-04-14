@@ -3,16 +3,16 @@ import sys
 
 base_cmd = [
     "main.py",
-    "--seeds", "100",
+    "--seeds", "1000",
     "--mode", "full",
     "--grid", "50",
-    "--episodes", "150"
+    "--episodes", "200"
 ]
 
 for agents in [2, 3, 4]:
     cmd = base_cmd + [
         "--min-agents", str(agents),
-        "--output", f"10MAR_{agents}.pkl"
+        "--output", f"09APR_{agents}.pkl"
     ]
 
     print("Running:", " ".join(cmd))

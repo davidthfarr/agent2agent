@@ -50,12 +50,14 @@ def parse_args():
                         help="Grid size N (default: 20)")
     parser.add_argument("--episodes", type=int, default=200,
                         help="Episode length T (default: 200)")
-    parser.add_argument("--min-agents", type=int, default=1,
+    parser.add_argument("--min-agents", type=int, default=2,
                         help="Min agents required at target for success (default: 1)")
     # Single condition args
     parser.add_argument("--comm", choices=["C0","C1","C2","C3"], default="C2")
     parser.add_argument("--loss", type=float, default=0.0)
     parser.add_argument("--latency", type=int, default=0)
+    parser.add_argument("--entropy-delta", type=float, default=0.20,
+                    help="C3 entropy delta gate threshold in nats (default: 0.15)")
     return parser.parse_args()
 
 
@@ -64,7 +66,7 @@ def build_base_config(args) -> SimConfig:
         world=WorldConfig(grid_size=args.grid),
         obs=ObservationConfig(),
         agents=AgentConfig(num_agents=4),
-        comms=CommConfig(),
+        comms=CommConfig(entropy_delta_threshold=args.entropy_delta),
         experiment=ExperimentConfig(
             episode_length=args.episodes,
             num_seeds=args.seeds,

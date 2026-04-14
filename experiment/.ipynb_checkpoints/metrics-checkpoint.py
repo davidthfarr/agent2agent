@@ -141,7 +141,7 @@ class StepRecorder:
         true_target_cells: list[int],
         network,       # Network instance (for comm stats)
         config,        # CommConfig
-        silent_failure_divergence_threshold: float = 0.2,
+        silent_failure_divergence_threshold: float = 0.1,
     ) -> EpisodeMetrics:
         """
         Build the final EpisodeMetrics from accumulated data.
@@ -282,7 +282,7 @@ def aggregate_episodes(
     for m in episode_metrics:
         if not m.task_success:
             m.silent_failure = (
-                m.final_mean_jsd < 0.2 and
+                m.final_mean_jsd < 0.1 and
                 m.final_mean_alignment < alignment_threshold
             )
         else:

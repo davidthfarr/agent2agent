@@ -36,7 +36,7 @@ class CommConfig:
     # Packet loss scales with channel congestion: each simultaneous message in
     # the channel adds pressure. P(drop) = 1 - (1 - base)^n_concurrent_messages
     # Set base_packet_loss_rate=0 and congestion_factor=0 for lossless channel.
-    packet_loss_congestion_factor: float = 0.05
+    packet_loss_congestion_factor: float = 0.00
     latency_steps: int = 0          # number of time steps a message is delayed
 
     # C2 / C3 parameters
@@ -45,7 +45,7 @@ class CommConfig:
     # C3: agent transmits only if |H(now) - H(at_last_send)| >= threshold (nats).
     # Gates on *change* in entropy since last transmission, not on absolute level.
     # Sends when belief has meaningfully shifted (concentrated or diffused).
-    entropy_delta_threshold: float = 0.15   # nats; tune per experiment
+    entropy_delta_threshold: float = 0.25  # nats; tune per experiment
 
     # Fusion: weight is derived from sender confidence (inverse entropy).
     # This caps the maximum weight any single message can contribute.
